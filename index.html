@@ -195,9 +195,10 @@ html[data-theme=night] .tab[aria-selected=true]{background:var(--pop);color:var(
 .cal-nav{width:38px;height:38px;border-radius:50%;border:2.5px solid var(--line);background:var(--card);font-weight:800;font-size:18px;line-height:1}
 .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
 .cal-w{text-align:center;font-size:12.5px;font-weight:700;color:var(--ink2);padding-bottom:2px}
-.cd{position:relative;aspect-ratio:1;border-radius:12px;border:2px solid transparent;background:var(--card2);display:flex;align-items:center;justify-content:center;padding:0;font-size:12px}
-.cd .dn{position:absolute;top:2px;left:5px;font-size:10.5px;font-weight:700;opacity:.65}
-.cd.on{border-color:var(--line)}
+.cd{position:relative;aspect-ratio:1;border-radius:12px;border:2px solid transparent;background:var(--card2);display:flex;align-items:center;justify-content:center;padding:0;font-size:12px;overflow:hidden}
+.cd .dn{position:absolute;z-index:2;top:2px;left:5px;font-size:10.5px;font-weight:700;opacity:.78}
+.cd.on{border-color:var(--line);background:color-mix(in srgb,var(--mint) 22%,var(--card2))}
+.cd.on .mini{position:absolute;z-index:1;left:50%;top:53%;transform:translate(-50%,-35%);display:block;width:43%;height:auto;max-height:62%;margin:0;overflow:visible;pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.12))}
 .cd.today{outline:3px solid var(--sun);outline-offset:1px}
 .cd.out{visibility:hidden}
 .cd.fut{opacity:.45}
@@ -270,7 +271,8 @@ details.tools summary{cursor:pointer;font-weight:700}
 .sheet h3{font-size:26px;margin-bottom:14px}
 .field{display:grid;gap:6px;margin-bottom:14px}
 .field label,.lbl{font-weight:700;font-size:14.5px}
-.field input[type=text],.field textarea{padding:11px 14px;border-radius:14px;border:2.5px solid var(--line);background:var(--card2)}
+.field input[type=text],.field input[type=number],.field textarea{padding:11px 14px;border-radius:14px;border:2.5px solid var(--line);background:var(--card2);width:100%;max-width:100%}
+.field input[type=number]{font-variant-numeric:tabular-nums}
 .field textarea{min-height:150px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .editor{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center;margin-bottom:12px}
@@ -396,6 +398,11 @@ const rnd=(a,b)=>a+Math.random()*(b-a);
 const keyOf=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const parseKey=k=>{const [y,m,d]=k.split("-").map(Number);return new Date(y,m-1,d)};
 const addDays=(k,n)=>{const d=parseKey(k);d.setDate(d.getDate()+n);return keyOf(d)};
+/* Cộng tháng theo lịch, chặn ngày cuối tháng (31/01 + 1 tháng = 28/29/02). */
+function addMonthsKey(k,n){const base=parseKey(k),day=base.getDate(),target=new Date(base.getFullYear(),base.getMonth()+n,1);const last=new Date(target.getFullYear(),target.getMonth()+1,0).getDate();target.setDate(Math.min(day,last));return keyOf(target)}
+function daysBetweenKeys(a,b){return Math.round((parseKey(b)-parseKey(a))/86400000)}
+function completeMonthsBetween(start,end){if(!start||end<start)return 0;let n=(parseKey(end).getFullYear()-parseKey(start).getFullYear())*12+parseKey(end).getMonth()-parseKey(start).getMonth();while(n>0&&addMonthsKey(start,n)>end)n--;return Math.max(0,n)}
+function syncCalendarMonth(key=todayKey(),onlyId=null){const d=parseKey(key),ids=onlyId?[onlyId]:S.users.map(u=>u.id);for(const id of ids)ui.cal[id]={y:d.getFullYear(),m:d.getMonth()}}
 const vn=k=>{const [y,m,d]=k.split("-");return `${d}/${m}/${y}`};
 const WD=["Chủ nhật","Thứ hai","Thứ ba","Thứ tư","Thứ năm","Thứ sáu","Thứ bảy"];
 const wdOf=k=>WD[parseKey(k).getDay()];
@@ -406,9 +413,11 @@ let KEY="giulua.v1";
 const store={mem:null,
   load(){try{const r=localStorage.getItem(KEY);return r?JSON.parse(r):this.mem}catch(e){return this.mem}},
   save(o){try{localStorage.setItem(KEY,JSON.stringify(o))}catch(e){this.mem=JSON.parse(JSON.stringify(o))}}};
-let S=Object.assign({users:[],squads:[],feed:[],activeId:null,theme:matchMedia("(prefers-color-scheme: dark)").matches?"night":"day",dayOffset:0,palette:{id:"pink",h:335},seenMerge:{},lastSeen:0},store.load()||{});
+let S=Object.assign({users:[],squads:[],feed:[],activeId:null,theme:matchMedia("(prefers-color-scheme: dark)").matches?"night":"day",dayOffset:0,palette:{id:"pink",h:335},seenMerge:{},seenMonthMerge:{},lastSeen:0},store.load()||{});
+S.seenMerge=S.seenMerge||{};
+S.seenMonthMerge=S.seenMonthMerge||{};
 let SH=null; /* chế độ chia sẻ: có khi trang được xuất bản và có quyền db */
-const prefsOf=()=>({theme:S.theme,palette:S.palette,seenMerge:S.seenMerge,lastSeen:S.lastSeen});
+const prefsOf=()=>({theme:S.theme,palette:S.palette,seenMerge:S.seenMerge,seenMonthMerge:S.seenMonthMerge,lastSeen:S.lastSeen});
 const savePrefs=()=>store.save(prefsOf());
 function save(){if(SH){savePrefs();syncOut()}else store.save(S)}
 const canWrite=()=>{if(SH&&!SH.rw){toast("Tài khoản này chỉ xem được. Hãy nhờ chủ trang mời bạn quyền chỉnh sửa nhé.",5000);return false}return true};
@@ -696,6 +705,8 @@ function checkin(){
   const t=todayKey();
   if(u.days[t]){toast("Hôm nay bạn đã giữ lửa rồi 🔥");return}
   u.days[t]=focusFor(t).t;
+  /* Luôn đưa lịch về đúng tháng vừa điểm danh để ngọn lửa mới hiện ngay trên bảng. */
+  syncCalendarMonth(t,u.id);
   pushFeed({type:"checkin",from:u.id});save();render();
   const b=$('[data-act="checkin"]');const r=b?b.getBoundingClientRect():{left:innerWidth/2,top:innerHeight/2,width:0};
   fx.burst(r.left+r.width/2,r.top,{n:60,up:true,speed:12});
@@ -712,18 +723,30 @@ function checkMilestones(u){
 }
 function checkMerges(byUser){
   const t=todayKey();let ch=false;
+  S.seenMonthMerge=S.seenMonthMerge||{};
   for(const sq of S.squads){
     if(SH&&!sq.members.includes(SH.uid))continue;
-    const i=squadInfo(sq);if(i.n<2||!i.cur)continue;
-    const k=Math.floor(i.cur/30),key=sq.id+"#"+i.start,fresh=k>0&&i.cur%30===0&&i.last===t;
-    if(S.seenMerge[key]===undefined){S.seenMerge[key]=fresh?k-1:k;ch=true}
-    if(k>S.seenMerge[key]){
-      S.seenMerge[key]=k;ch=true;
-      if(byUser&&!S.feed.some(f=>f.key===key+"#"+k)){pushFeed({type:"merge",from:S.activeId||sq.members[0],sq:sq.name,n:i.cur,key:key+"#"+k})}
-      enqueue(()=>playMerge(sq,{}));
+    const i=squadInfo(sq);if(i.n<2||!i.cur||!i.start)continue;
+    /* Mốc gộp là ngày kỷ niệm theo tháng trên lịch, không phải mỗi 30 ngày. */
+    const monthIndex=completeMonthsBetween(i.start,t);
+    const dueToday=monthIndex>0&&addMonthsKey(i.start,monthIndex)===t;
+    const currentSharedDay=i.last===t;
+    const key=sq.id+"#"+i.start;
+    if(S.seenMonthMerge[key]===undefined){
+      /* Không phát lại các mốc cũ khi mở web lần đầu sau ngày cập nhật. */
+      S.seenMonthMerge[key]=(dueToday?monthIndex-1:monthIndex);ch=true;
+    }
+    if(dueToday&&currentSharedDay&&monthIndex>S.seenMonthMerge[key]){
+      S.seenMonthMerge[key]=monthIndex;ch=true;
+      const eventKey=`${key}#M${monthIndex}`;
+      sq.merged=sq.merged||[];
+      if(!sq.merged.some(m=>m&&m.key===eventKey))sq.merged.push({key:eventKey,months:monthIndex,date:t,streakStart:i.start});
+      const shouldRecord=typeof byUser==="function"?!!byUser(sq):!!byUser;
+      if(shouldRecord&&!S.feed.some(f=>f.key===eventKey))pushFeed({type:"merge",from:S.activeId||sq.members[0],sq:sq.name,n:i.cur,months:monthIndex,key:eventKey});
+      enqueue(()=>playMerge(sq,{months:monthIndex}));
     }
   }
-  if(ch)byUser?save():(SH?savePrefs():save());
+  if(ch){if(typeof byUser==="function"||byUser)save();else (SH?savePrefs():save())}
 }
 
 /* Hộp chúc mừng mốc cá nhân */
@@ -746,12 +769,13 @@ function celebrate(u,n){
    (luôn nền tối, kể cả đang ban ngày)
    ========================================================= */
 let cineClose=null;
-function playMerge(sq,{preview=false}={}){
+function playMerge(sq,{preview=false,months:forcedMonths=null}={}){
   return new Promise(res=>{
     const ms=sq.members.map(U).filter(Boolean).slice(0,6),n=ms.length;
     if(n<2){res();return}
     const info=squadInfo(sq);
-    const cur=preview?Math.max(info.cur,30):info.cur,months=Math.max(1,Math.floor(cur/30));
+    const cur=preview?Math.max(info.cur,30):info.cur;
+    const months=Number.isFinite(forcedMonths)?forcedMonths:Math.max(1,completeMonthsBetween(info.start||sq.created||todayKey(),todayKey()));
     const el=$("#cine"),stage=$("#cineStage"),timers=[];
     const T=(ms_,fn)=>timers.push(setTimeout(fn,ms_));
     const cap=t=>{const c=$("#cineCap");c.style.opacity=0;setTimeout(()=>{c.textContent=t;c.style.opacity=1},180)};
@@ -903,6 +927,33 @@ function render(){
   scrollTo(0,keepY);
 }
 
+/* Thẻ mục tiêu cân nặng: dữ liệu cũ không có trường cân nặng vẫn hoạt động bình thường. */
+const hasWeight=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
+const kg=v=>Number(v).toLocaleString("vi-VN",{maximumFractionDigits:1});
+function weightGoalCard(u){
+  const hasCurrent=hasWeight(u.weightKg),hasTarget=hasWeight(u.targetWeightKg);
+  const current=hasCurrent?Number(u.weightKg):null,target=hasTarget?Number(u.targetWeightKg):null;
+  let inner="";
+  if(!hasCurrent&&!hasTarget){
+    inner=`<p class="muted">Thiết lập cân nặng hiện tại và mục tiêu để theo dõi hành trình của bạn ngay từ ngày đầu.</p>`;
+  }else if(!hasCurrent){
+    inner=`<p class="muted">Mục tiêu của bạn là <b>${kg(target)} kg</b>. Hãy nhập cân nặng hiện tại để bắt đầu tính tiến độ.</p>`;
+  }else if(!hasTarget){
+    inner=`<p class="muted">Cân nặng hiện tại: <b>${kg(current)} kg</b>. Thêm mục tiêu cân nặng để xem còn bao nhiêu kg cần thay đổi.</p>`;
+  }else{
+    const start=hasWeight(u.startWeightKg)?Number(u.startWeightKg):current;
+    const total=Math.abs(start-target),direction=target<start?"giảm cân":target>start?"tăng cân":"duy trì cân nặng";
+    const moved=target<start?start-current:target>start?current-start:0;
+    const pct=total<0.05?(Math.abs(current-target)<=0.1?100:0):Math.max(0,Math.min(100,Math.round(moved/total*100)));
+    const done=target<start?current<=target+0.05:target>start?current>=target-0.05:Math.abs(current-target)<=0.1;
+    const diff=Math.abs(current-target);
+    const needText=done?"Bạn đã chạm mục tiêu cân nặng. Hãy tiếp tục tập luyện an toàn và duy trì thói quen.":current>target?`Còn ${kg(diff)} kg cần giảm để chạm mục tiêu.`:current<target?`Còn ${kg(diff)} kg để đạt mục tiêu đã đặt.`:"Bạn đang ở đúng mức cân nặng mục tiêu.";
+    inner=`<div class="stats"><div class="stat"><b>${kg(current)} kg</b><span>Cân nặng hiện tại</span></div><div class="stat"><b>${kg(target)} kg</b><span>Mục tiêu · ${direction}</span></div></div>
+      <div class="bar" style="margin-top:14px"><i style="--w:${pct}%"></i></div><div class="small muted" style="margin-top:7px">Tiến độ từ ${kg(start)} kg đến ${kg(target)} kg: <b>${pct}%</b></div>
+      <p class="${done?"banner ok":"muted"}" style="margin-bottom:0">${esc(needText)}</p>`;
+  }
+  return `<section class="card"><h3>Mục tiêu cân nặng</h3>${inner}<div class="row" style="margin-top:12px"><button class="btn sec sm" data-act="edituser" data-id="${u.id}">${hasCurrent||hasTarget?"Cập nhật cân nặng / mục tiêu":"Thiết lập mục tiêu"}</button></div></section>`;
+}
 /* ---------- Tab: Lửa của tôi ---------- */
 function bannerFor(u,info){
   const pick=a=>a[ui.bseed%a.length];
@@ -953,7 +1004,7 @@ function tabMe(){
   const ex=(EX[exGender(u)]||EX.female)[parseKey(t).getDay()].slice(0,3);
   const today=`<section class="card"><h3>Gợi ý hôm nay: ${f.e} ${f.t}</h3><div class="stack" style="gap:10px">`+ex.map(x=>`<div class="ex"><div class="em">${x[0]}</div><div><h4>${x[1]}</h4><span class="reps">${x[2]}</span><p>${x[3]}</p></div></div>`).join("")+`</div><div style="margin-top:12px"><button class="btn sec sm" data-act="tab" data-tab="ex">Xem đủ bài tập</button></div></section>`;
 
-  return `<div class="cols"><div class="stack">${hero}${today}${ladder}</div><div class="stack">${stats}${cal}${log}</div></div>`;
+  return `<div class="cols"><div class="stack">${hero}${today}${ladder}</div><div class="stack">${stats}${weightGoalCard(u)}${cal}${log}</div></div>`;
 }
 const exGender=u=>ui.exG||(u&&u.gender==="male"?"male":"female");
 
@@ -997,12 +1048,27 @@ function tabFriends(){
   return `<div class="stack"><div><h2 style="font-size:28px">Bảng giữ lửa</h2><p class="muted" style="margin:4px 0 0">Xếp theo chuỗi hiện tại. Thả lửa, nhắc tập hoặc gửi lời chúc để tiếp sức cho nhau.</p></div><div class="grid">${cards}</div></div>`;
 }
 
+/* Đếm đến ngày kỷ niệm theo lịch của chuỗi lửa chung. */
+function mergeCountdownText(i){
+  const t=todayKey();
+  if(!i.start||!i.cur)return `Bắt đầu chuỗi chung để mở mốc gộp lửa theo tháng`;
+  const idx=completeMonthsBetween(i.start,t),isTodayAnniversary=idx>0&&addMonthsKey(i.start,idx)===t;
+  const nextMonth=(isTodayAnniversary&&i.last!==t)?idx:idx+1;
+  const nextDate=addMonthsKey(i.start,Math.max(1,nextMonth));
+  const left=Math.max(0,daysBetweenKeys(t,nextDate));
+  return left===0?`<b>Hôm nay là mốc gộp lửa tháng ${nextMonth}</b>`:`còn <b>${left} ngày</b> tới mốc gộp lửa tháng ${nextMonth} (${vn(nextDate)})`;
+}
 /* ---------- Tab: Lửa chung ---------- */
 function tabSquads(){
   const cards=S.squads.map(sq=>{
     const i=squadInfo(sq),tier=tierFor(i.cur);
-    const nxt=(Math.floor(i.cur/30)+1)*30,left=nxt-i.cur;
-    const pct=Math.round(((i.cur%30)/30)*100);
+    let pct=0;
+    if(i.start&&i.cur){
+      const idx=completeMonthsBetween(i.start,todayKey());
+      const base=addMonthsKey(i.start,idx),next=addMonthsKey(i.start,idx+1);
+      const span=Math.max(1,daysBetweenKeys(base,next));
+      pct=Math.max(0,Math.min(100,Math.round(daysBetweenKeys(base,todayKey())/span*100)));
+    }
     const mem=i.ms.map(m=>`<span class="mem ${m.days[todayKey()]?"ok":""}">${headChip(m.chibi,"hd")}${esc(m.name)}${m.days[todayKey()]?" ✓":""}</span>`).join("");
     return `<article class="card"><div class="sq" style="${tierVars(tier)}">
       <div>${flame(i.cur,{fs:130,tier,sparks:true})}</div>
@@ -1010,11 +1076,11 @@ function tabSquads(){
         <div class="muted small">Chuỗi chung: những ngày <b>tất cả</b> cùng điểm danh · kỷ lục ${i.best} ngày${i.start?` · bắt đầu ${vn(i.start)}`:""}</div>
         <div class="members">${mem}</div>
         <div class="bar" style="max-width:380px"><i style="--w:${pct}%"></i></div>
-        <div class="small muted" style="margin:6px 0 10px">Hôm nay ${i.doneCount}/${i.n} người đã tập · còn <b>${left} ngày</b> nữa tới mốc gộp lửa ${nxt} ngày (đã gộp ${(sq.merged||[]).length} lần)</div>
+        <div class="small muted" style="margin:6px 0 10px">Hôm nay ${i.doneCount}/${i.n} người đã tập · ${mergeCountdownText(i)} (đã gộp ${(sq.merged||[]).length} lần)</div>
         <div class="acts"><button class="btn sm" data-act="playsq" data-id="${sq.id}">🎬 Xem cảnh gộp lửa</button><button class="btn sm sec" data-act="delsq" data-id="${sq.id}">Giải tán</button></div></div></div></article>`}).join("");
-  return `<div class="stack"><div><h2 style="font-size:28px">Lửa chung</h2><p class="muted" style="margin:4px 0 0">Lập một hội từ 2–6 người. Ngày nào tất cả cùng điểm danh thì chuỗi chung tăng. Cứ tròn 30 ngày, các chibi sẽ chạy ra gộp lửa của mọi người thành một ngọn lửa lớn.</p></div>
+  return `<div class="stack"><div><h2 style="font-size:28px">Lửa chung</h2><p class="muted" style="margin:4px 0 0">Lập một hội từ 2–6 người. Ngày nào tất cả cùng điểm danh thì chuỗi chung tăng. Cứ đến ngày kỷ niệm mỗi tháng theo lịch, các chibi sẽ chạy ra gộp lửa thành một ngọn lửa lớn.</p></div>
    <div><button class="btn" data-act="newsq" ${S.users.length<2?"disabled":""}>＋ Lập hội giữ lửa</button>${S.users.length<2?`<span class="small muted"> Cần ít nhất 2 người tập.</span>`:""}</div>
-   ${cards||`<div class="card empty"><div>${flame(0,{fs:130,num:false,tier:TIERS[0]})}</div><h3>Chưa có ngọn lửa chung</h3><p class="muted">Lập hội đầu tiên để cùng nhau tiến tới mốc 30 ngày.</p></div>`}</div>`;
+   ${cards||`<div class="card empty"><div>${flame(0,{fs:130,num:false,tier:TIERS[0]})}</div><h3>Chưa có ngọn lửa chung</h3><p class="muted">Lập hội đầu tiên để cùng nhau tiến tới mốc gộp lửa tháng đầu tiên.</p></div>`}</div>`;
 }
 
 /* ---------- Tab: Bài tập ---------- */
@@ -1082,7 +1148,7 @@ function seedDemo(){
   S.activeId=linh.id;ui.tab="me";
   pushFeed({type:"join",from:linh.id});pushFeed({type:"cheer",from:khoa.id,to:linh.id});pushFeed({type:"msg",from:mai.id,to:linh.id,text:"Mai mình cùng gộp lửa nha!"});
   save();render();
-  toast("Đã nạp dữ liệu mẫu. Linh & Khoa chỉ còn 1 ngày nữa là gộp lửa 30 ngày — điểm danh cả hai để xem!",5200);
+  toast("Đã nạp dữ liệu mẫu. Mở mục Lửa chung để xem tiến độ gộp lửa theo mốc tháng!",5200);
 }
 
 /* =========================================================
@@ -1093,7 +1159,7 @@ const PAL={hair:["#2B1B17","#6B3E26","#F4C542","#FF5FA2","#7C4DFF","#27C4F4","#E
            pants:["#4A0F36","#2B2D42","#3B5BDB","#FF86BE","#F4F1DE","#2F9E44","#9B5DE5"]};
 function openUserModal(id){
   const ex=id?U(id):null;
-  const d=ex?{name:ex.name,gender:ex.gender,chibi:{...ex.chibi}}:{name:"",gender:"female",chibi:{name:"",style:"female",hair:"#2B1B17",shirt:"#FF2E8A",pants:"#4A0F36"}};
+  const d=ex?{name:ex.name,gender:ex.gender,chibi:{...ex.chibi},weightKg:ex.weightKg??"",targetWeightKg:ex.targetWeightKg??"",startWeightKg:ex.startWeightKg??null}:{name:"",gender:"female",chibi:{name:"",style:"female",hair:"#2B1B17",shirt:"#FF2E8A",pants:"#4A0F36"},weightKg:"",targetWeightKg:"",startWeightKg:null};
   d.chibi.style=d.chibi.style||(d.gender==="male"?"male":"female");
   const label={hair:"Tóc",shirt:"Áo",pants:"Quần"};
   const rows=["hair","shirt","pants"].map(k=>`<div class="swrow"><span class="lbl">${label[k]}</span>${PAL[k].map(c=>`<button type="button" class="sw ${d.chibi[k].toLowerCase()===c.toLowerCase()?"on":""}" data-k="${k}" data-c="${c}" style="--c:${c}" aria-label="${label[k]} ${c}"></button>`).join("")}<input type="color" data-k="${k}" value="${d.chibi[k]}" aria-label="Chọn màu ${label[k].toLowerCase()} tuỳ ý"></div>`).join("");
@@ -1101,6 +1167,8 @@ function openUserModal(id){
    <div class="field"><label for="uName">Tên của bạn</label><input type="text" id="uName" maxlength="30" placeholder="Ví dụ: Linh" value="${esc(d.name)}"></div>
    <div class="field"><span class="lbl">Giới tính (để gợi ý bài tập phù hợp)</span><div class="row" id="gRow">
      ${[["female","♀ Nữ"],["male","♂ Nam"],["other","Khác"]].map(([v,l])=>`<button type="button" class="chip" data-g="${v}" aria-pressed="${d.gender===v}">${l}</button>`).join("")}</div></div>
+   <div class="field"><label for="uWeight">Cân nặng hiện tại (kg)</label><input type="number" id="uWeight" min="20" max="350" step="0.1" inputmode="decimal" placeholder="Ví dụ: 75" value="${esc(d.weightKg)}"><span class="small muted">Dùng để tính tiến độ từ cân nặng ban đầu tới mục tiêu.</span></div>
+   <div class="field"><label for="uTargetWeight">Mục tiêu cân nặng (kg)</label><input type="number" id="uTargetWeight" min="20" max="350" step="0.1" inputmode="decimal" placeholder="Ví dụ: 65" value="${esc(d.targetWeightKg)}"><span class="small muted">Có thể để trống và thiết lập sau; bạn vẫn có thể chỉnh trong hồ sơ.</span></div>
    <div class="field"><span class="lbl">Kiểu chibi (đổi được bất cứ lúc nào)</span><div class="row" id="sRow">
      ${[["female","🎀 Chibi nữ"],["male","🧢 Chibi nam"]].map(([v,l])=>`<button type="button" class="chip" data-s="${v}" aria-pressed="${d.chibi.style===v}">${l}</button>`).join("")}</div></div>
    <div class="editor"><div class="prevbox" id="prev"></div><div>
@@ -1121,9 +1189,26 @@ function openUserModal(id){
   $$("input[type=color]",sh).forEach(i=>i.oninput=e=>{d.chibi[i.dataset.k]=e.target.value;$$(`.sw[data-k="${i.dataset.k}"]`,sh).forEach(x=>x.classList.remove("on"));upd()});
   $("#uSave",sh).onclick=()=>{
     const name=d.name.trim();if(!name){toast("Bạn nhớ nhập tên nhé!");$("#uName",sh).focus();return}
+    const parseWeight=(selector,label)=>{
+      const raw=$(selector,sh).value.trim();if(!raw)return {ok:true,value:null};
+      const value=Number(raw);
+      if(!Number.isFinite(value)||value<20||value>350){toast(`${label} phải từ 20 đến 350 kg.`);$(selector,sh).focus();return {ok:false,value:null}}
+      return {ok:true,value:Math.round(value*10)/10};
+    };
+    const current=parseWeight("#uWeight","Cân nặng hiện tại");if(!current.ok)return;
+    const target=parseWeight("#uTargetWeight","Mục tiêu cân nặng");if(!target.ok)return;
     d.chibi.name=(d.chibi.name||"").trim()||name;
-    if(ex){ex.name=name;ex.gender=d.gender;ex.chibi=d.chibi;toast("Đã lưu thay đổi 💖")}
-    else{const nu={id:SH?SH.uid:uid(),name,gender:d.gender,chibi:d.chibi,created:todayKey(),days:{},celebrated:[]};S.users.push(nu);S.activeId=nu.id;ui.tab="me";ui.exG=null;pushFeed({type:"join",from:nu.id});toast(`Chào mừng ${name}! Hãy điểm danh để châm ngọn lửa đầu tiên 🔥`)}
+    const oldTarget=ex&&hasWeight(ex.targetWeightKg)?Number(ex.targetWeightKg):null;
+    const goalChanged=!!ex&&((target.value===null)!==(oldTarget===null)||(target.value!==null&&oldTarget!==null&&Math.abs(target.value-oldTarget)>=0.05));
+    let startWeight=(ex&&hasWeight(ex.startWeightKg))?Number(ex.startWeightKg):null;
+    if(current.value!==null&&(!ex||startWeight===null||goalChanged))startWeight=current.value;
+    if(ex){
+      ex.name=name;ex.gender=d.gender;ex.chibi=d.chibi;ex.weightKg=current.value;ex.targetWeightKg=target.value;ex.startWeightKg=startWeight;
+      toast("Đã lưu hồ sơ và mục tiêu cân nặng.");
+    }else{
+      const nu={id:SH?SH.uid:uid(),name,gender:d.gender,chibi:d.chibi,created:todayKey(),days:{},celebrated:[],weightKg:current.value,targetWeightKg:target.value,startWeightKg:current.value};
+      S.users.push(nu);S.activeId=nu.id;syncCalendarMonth(todayKey(),nu.id);ui.tab="me";ui.exG=null;pushFeed({type:"join",from:nu.id});toast(`Chào mừng ${name}! Hãy điểm danh để châm ngọn lửa đầu tiên 🔥`)
+    }
     save();closeModal();render();
   };
   const del=$("#uDel",sh);if(del)del.onclick=async()=>{
@@ -1212,8 +1297,8 @@ const H={
   exd(b){ui.exD=Number(b.dataset.d);render()},
   close(){closeModal()},
   cineskip(){if(cineClose)cineClose()},
-  plus1(){S.dayOffset=(S.dayOffset||0)+1;save();render();toast(`Đã tua sang ${wdOf(todayKey())}, ${vn(todayKey())}`)},
-  resetday(){S.dayOffset=0;save();render()},
+  plus1(){S.dayOffset=(S.dayOffset||0)+1;syncCalendarMonth(todayKey());save();render();toast(`Đã tua sang ${wdOf(todayKey())}, ${vn(todayKey())}`)},
+  resetday(){S.dayOffset=0;syncCalendarMonth(todayKey());save();render()},
   demo(){seedDemo()},
   allcheck(){
     const t=todayKey();
@@ -1240,17 +1325,17 @@ const FB_URL = "https://luamienphi-630cb-default-rtdb.asia-southeast1.firebaseda
 let isReceivingCloud = false;
 let fbTimer = null;
 
-// Ghi nhớ nhân vật của máy này để không bị nhảy sang nhân vật của bạn bè
+// Ghi nhớ tài khoản của máy này để khi bạn bè thêm tài khoản mới không bị nhảy lung tung
 const origUserAct = H.user;
 H.user = function(b) {
   localStorage.setItem("giulua.myId", b.dataset.id);
   origUserAct(b);
 };
 
-// Móc vào lệnh lưu: hễ bấm điểm danh/cổ vũ/nhắc nhở là tự bắn lên Firebase
-const origSaveLocal = store.save.bind(store);
-store.save = function(data) {
-  origSaveLocal(data);
+// Ghi đè hàm save(): khi điểm danh, tạo người mới, cổ vũ -> tự động đẩy lên Firebase
+save = function() {
+  if (S.activeId) localStorage.setItem("giulua.myId", S.activeId);
+  store.save(S);
   if (isReceivingCloud) return;
   clearTimeout(fbTimer);
   fbTimer = setTimeout(() => {
@@ -1258,36 +1343,51 @@ store.save = function(data) {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        users: data.users || [],
-        squads: data.squads || [],
-        feed: (data.feed || []).slice(0, 100),
+        users: S.users || [],
+        squads: S.squads || [],
+        feed: (S.feed || []).slice(0, 100),
         ts: Date.now()
       })
     }).catch(() => {});
   }, 180);
 };
 
-// Nhận dữ liệu từ Firebase về cập nhật giao diện máy bạn ngay lập tức
+// Nhận và HỢP NHẤT dữ liệu từ Firebase về máy (giúp Doan và Nhu cùng xuất hiện, không bị mất nhau)
 function applyCloudData(cloud) {
   if (!cloud || !Array.isArray(cloud.users)) return;
   isReceivingCloud = true;
   const myId = localStorage.getItem("giulua.myId") || S.activeId;
-  
-  S.users = cloud.users;
-  S.squads = cloud.squads || [];
-  S.feed = cloud.feed || [];
-  
+
+  // Gộp danh sách người dùng từ cả máy và đám mây
+  const userMap = new Map();
+  (cloud.users || []).forEach(u => userMap.set(u.id, u));
+  (S.users || []).forEach(u => {
+    if (!userMap.has(u.id)) {
+      userMap.set(u.id, u);
+    } else {
+      const mergedUser = userMap.get(u.id);
+      mergedUser.days = Object.assign({}, u.days, mergedUser.days);
+      mergedUser.celebrated = [...new Set([...(u.celebrated || []), ...(mergedUser.celebrated || [])])];
+      if (u.weightKg && !mergedUser.weightKg) mergedUser.weightKg = u.weightKg;
+      if (u.targetWeightKg && !mergedUser.targetWeightKg) mergedUser.targetWeightKg = u.targetWeightKg;
+    }
+  });
+  S.users = Array.from(userMap.values());
+
+  if (Array.isArray(cloud.squads) && cloud.squads.length) S.squads = cloud.squads;
+  if (Array.isArray(cloud.feed) && cloud.feed.length) S.feed = cloud.feed;
+
   S.users.forEach(u => {
     u.days = u.days || {};
     u.celebrated = u.celebrated || [];
     u.chibi = u.chibi || { name: u.name, hair: "#2B1B17", shirt: "#FF2E8A", pants: "#4A0F36" };
     u.chibi.style = u.chibi.style || (u.gender === "male" ? "male" : "female");
   });
-  
+
   if (myId && S.users.some(u => u.id === myId)) S.activeId = myId;
   else if (!S.activeId && S.users.length) S.activeId = S.users[0].id;
-  
-  origSaveLocal(S);
+
+  store.save(S);
   if ($("#modal").hidden) render();
   else updateChrome();
   checkMerges(false);
@@ -1295,13 +1395,13 @@ function applyCloudData(cloud) {
 }
 
 function startFirebaseSync() {
-  // 1. Kéo dữ liệu về khi vừa mở web
+  // 1. Kéo dữ liệu từ Firebase về ngay khi mở web
   fetch(FB_URL).then(r => r.json()).then(d => {
     if (d && Array.isArray(d.users) && d.users.length) applyCloudData(d);
-    else if (S.users.length) store.save(S);
+    else if (S.users.length) save();
   }).catch(() => {});
 
-  // 2. Lắng nghe trực tiếp (Realtime Server-Sent Events): bạn bè bấm là máy mình nhảy số ngay
+  // 2. Lắng nghe thay đổi thời gian thực: máy bên kia bấm gì là máy này cập nhật ngay
   try {
     const sse = new EventSource(FB_URL);
     sse.addEventListener("put", e => {
@@ -1316,7 +1416,7 @@ function startFirebaseSync() {
 /* =========================================================
    KHỞI ĐỘNG
    ========================================================= */
-// Sửa lỗi kẹt ngày tương lai nếu trước đó bạn lỡ bấm nút "Tua ngày"
+// Tự sửa ngày ảo nếu trước đó vô tình bấm nút Tua ngày
 if (S.dayOffset) {
   const fakeDay = todayKey(); S.dayOffset = 0; const realDay = todayKey();
   S.users.forEach(u => { if (u.days && u.days[fakeDay] && !u.days[realDay]) { u.days[realDay] = u.days[fakeDay]; delete u.days[fakeDay]; } });
