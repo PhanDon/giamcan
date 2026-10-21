@@ -1234,46 +1234,103 @@ document.addEventListener("keydown",e=>{
 });
 
 /* =========================================================
-   ĐỒNG BỘ NHIỀU MÁY (db của trang xuất bản): players/{id}, events/{id}, squads/{id}
+   ĐỒNG BỘ THỜI GIAN THỰC QUA FIREBASE REALTIME DATABASE
    ========================================================= */
-function put(path,obj){
-  const j=JSON.stringify(obj);if(SH.last[path]===j)return;SH.last[path]=j;SH.pending++;
-  SH.q[path]=(SH.q[path]||Promise.resolve()).then(()=>SH.db.doc(path).set(JSON.parse(j))).catch(e=>{delete SH.last[path];werr(e)}).finally(()=>SH.pending--);
+const FB_URL = "https://luamienphi-630cb-default-rtdb.asia-southeast1.firebasedatabase.app/giulua.json";
+let isReceivingCloud = false;
+let fbTimer = null;
+
+// Ghi nhớ nhân vật của máy này để không bị nhảy sang nhân vật của bạn bè
+const origUserAct = H.user;
+H.user = function(b) {
+  localStorage.setItem("giulua.myId", b.dataset.id);
+  origUserAct(b);
+};
+
+// Móc vào lệnh lưu: hễ bấm điểm danh/cổ vũ/nhắc nhở là tự bắn lên Firebase
+const origSaveLocal = store.save.bind(store);
+store.save = function(data) {
+  origSaveLocal(data);
+  if (isReceivingCloud) return;
+  clearTimeout(fbTimer);
+  fbTimer = setTimeout(() => {
+    fetch(FB_URL, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        users: data.users || [],
+        squads: data.squads || [],
+        feed: (data.feed || []).slice(0, 100),
+        ts: Date.now()
+      })
+    }).catch(() => {});
+  }, 180);
+};
+
+// Nhận dữ liệu từ Firebase về cập nhật giao diện máy bạn ngay lập tức
+function applyCloudData(cloud) {
+  if (!cloud || !Array.isArray(cloud.users)) return;
+  isReceivingCloud = true;
+  const myId = localStorage.getItem("giulua.myId") || S.activeId;
+  
+  S.users = cloud.users;
+  S.squads = cloud.squads || [];
+  S.feed = cloud.feed || [];
+  
+  S.users.forEach(u => {
+    u.days = u.days || {};
+    u.celebrated = u.celebrated || [];
+    u.chibi = u.chibi || { name: u.name, hair: "#2B1B17", shirt: "#FF2E8A", pants: "#4A0F36" };
+    u.chibi.style = u.chibi.style || (u.gender === "male" ? "male" : "female");
+  });
+  
+  if (myId && S.users.some(u => u.id === myId)) S.activeId = myId;
+  else if (!S.activeId && S.users.length) S.activeId = S.users[0].id;
+  
+  origSaveLocal(S);
+  if ($("#modal").hidden) render();
+  else updateChrome();
+  checkMerges(false);
+  isReceivingCloud = false;
 }
-function del(path){delete SH.last[path];SH.pending++;SH.db.doc(path).delete().catch(werr).finally(()=>SH.pending--)}
-function werr(e){if(e&&e.code==="invalid_argument"){SH.rw=false;toast("Tài khoản này chỉ xem được. Hãy nhờ chủ trang mời bạn quyền chỉnh sửa nhé.",6000)}else toast("Chưa lưu được lên máy chủ, thử lại sau nhé")}
-function syncOut(){
-  if(!SH||!SH.rw)return;
-  const clean=o=>{const c={...o};delete c.id;return c},mine=U(SH.uid);
-  if(mine)put("players/"+SH.uid,clean(mine));else if(SH.last["players/"+SH.uid])del("players/"+SH.uid);
-  put("events/"+SH.uid,{items:S.feed.filter(f=>f.from===SH.uid).slice(0,50)});
-  S.squads.forEach(q=>put("squads/"+q.id,clean(q)));
-  Object.keys(SH.last).forEach(k=>{if(k.startsWith("squads/")&&!S.squads.some(q=>"squads/"+q.id===k))del(k)});
-}
-async function initShared(){
-  const [db,user]=await Promise.all([claude.use("db"),claude.use("user")]);if(!db||!user)return;
-  const id=await user.id();if(!id)return;
-  SH={db,uid:id,rw:(await user.can("data.write"))!==false,last:{},q:{},pending:0,got:{},t:0};
-  KEY="giulua.sh1";const p=store.load()||{};
-  S={users:[],squads:[],feed:[],activeId:id,theme:p.theme||S.theme,dayOffset:0,palette:p.palette||S.palette,seenMerge:p.seenMerge||{},lastSeen:p.lastSeen||Date.now()};
-  const wake=()=>{clearTimeout(SH.t);SH.t=setTimeout(()=>{S.activeId=id;ui.boot=false;render();if(SH.got.players&&SH.got.squads&&SH.got.events)checkMerges(false)},150)};
-  const keep=(col,key)=>q=>{ /* giữ nguyên đối tượng cũ nếu không đổi, để hộp thoại đang mở không bị lệch */
-    const old=S[col];S[col]=q.docs.map(d=>{const path=key+"/"+d.id,j=JSON.stringify(d.data()),o=old.find(x=>x.id===d.id);
-      if(o&&(SH.last[path]===j||(d.id===id&&key==="players"&&SH.pending)))return o;SH.last[path]=j;return {...JSON.parse(j),id:d.id}})};
-  const sub=(name,fn)=>db.collection(name).onSnapshot(q=>{fn(q);if(!q.metadata.fromCache)SH.got[name]=1;wake()},()=>toast("Mất kết nối chia sẻ, hãy tải lại trang nhé"));
-  sub("players",keep("users","players"));sub("squads",keep("squads","squads"));
-  sub("events",q=>{q.docs.forEach(d=>{SH.last["events/"+d.id]=JSON.stringify(d.data())});S.feed=q.docs.flatMap(d=>JSON.parse(JSON.stringify(d.data().items||[]))).sort((a,b)=>b.ts-a.ts).slice(0,150)});
+
+function startFirebaseSync() {
+  // 1. Kéo dữ liệu về khi vừa mở web
+  fetch(FB_URL).then(r => r.json()).then(d => {
+    if (d && Array.isArray(d.users) && d.users.length) applyCloudData(d);
+    else if (S.users.length) store.save(S);
+  }).catch(() => {});
+
+  // 2. Lắng nghe trực tiếp (Realtime Server-Sent Events): bạn bè bấm là máy mình nhảy số ngay
+  try {
+    const sse = new EventSource(FB_URL);
+    sse.addEventListener("put", e => {
+      try {
+        const p = JSON.parse(e.data);
+        if (p && p.data && p.data.users) applyCloudData(p.data);
+      } catch (_) {}
+    });
+  } catch (_) {}
 }
 
 /* =========================================================
    KHỞI ĐỘNG
    ========================================================= */
-S.users.forEach(u=>{u.days=u.days||{};u.celebrated=u.celebrated||[];u.chibi=u.chibi||{name:u.name,hair:"#2B1B17",shirt:"#FF2E8A",pants:"#4A0F36"};u.chibi.style=u.chibi.style||(u.gender==="male"?"male":"female")});
-S.palette=S.palette||{id:"pink",h:335};
+// Sửa lỗi kẹt ngày tương lai nếu trước đó bạn lỡ bấm nút "Tua ngày"
+if (S.dayOffset) {
+  const fakeDay = todayKey(); S.dayOffset = 0; const realDay = todayKey();
+  S.users.forEach(u => { if (u.days && u.days[fakeDay] && !u.days[realDay]) { u.days[realDay] = u.days[fakeDay]; delete u.days[fakeDay]; } });
+}
+S.users.forEach(u => {
+  u.days = u.days || {}; u.celebrated = u.celebrated || [];
+  u.chibi = u.chibi || { name: u.name, hair: "#2B1B17", shirt: "#FF2E8A", pants: "#4A0F36" };
+  u.chibi.style = u.chibi.style || (u.gender === "male" ? "male" : "female");
+});
+S.palette = S.palette || { id: "pink", h: 335 };
 fx.init();
-ui.boot=!!(window.claude&&window.claude.use);
+ui.boot = false;
 render();
-if(ui.boot){initShared().catch(()=>{}).finally(()=>{if(!SH){ui.boot=false;render()}});setTimeout(()=>{if(ui.boot){ui.boot=false;render()}},8000)}
+startFirebaseSync();
 </script>
 </body>
 </html>
